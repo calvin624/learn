@@ -68,6 +68,7 @@ function VocabApp() {
   const [view, setView] = useState("study");
   const [currentId, setCurrentId] = useState(null);
   const [mode, setMode] = useState("en2zh");
+  const [categoryFilter, setCategoryFilter] = useState("all");
   const [direction, setDirection] = useState("en2zh");
   const [answer, setAnswer] = useState("");
   const [submitted, setSubmitted] = useState(false);
@@ -92,7 +93,11 @@ function VocabApp() {
     localDB.set(STORAGE_KEY, next);
   }, []);
 
-  const pool = words.filter((w) => w.mastery < 5);
+  const categories = [...new Set(words.map((w) => w.category).filter(Boolean))];
+
+  const pool = words.filter(
+    (w) => w.mastery < 5 && (categoryFilter === "all" || w.category === categoryFilter)
+  );
 
   const pickCard = useCallback(
     (excludeId) => {
@@ -125,6 +130,14 @@ function VocabApp() {
     const nextId = pickCard(null);
     setCurrentId(nextId);
     setDirection(m === "mixed" ? (Math.random() < 0.5 ? "en2zh" : "zh2en") : m);
+  }
+
+  function switchCategory(c) {
+    setCategoryFilter(c);
+    setAnswer("");
+    setSubmitted(false);
+    setIsCorrect(false);
+    setCurrentId(null);
   }
 
   const current = words.find((w) => w.id === currentId);
@@ -258,12 +271,33 @@ function VocabApp() {
               ))}
             </div>
 
+            {categories.length > 0 && (
+              <div style={{ display: "flex", gap: 6, marginBottom: 16, flexWrap: "wrap" }}>
+                <CategoryChip
+                  label={`全部 (${words.filter((w) => w.mastery < 5).length})`}
+                  active={categoryFilter === "all"}
+                  onClick={() => switchCategory("all")}
+                />
+                {categories.map((c) => (
+                  <CategoryChip
+                    key={c}
+                    label={`${c} (${words.filter((w) => w.category === c && w.mastery < 5).length})`}
+                    active={categoryFilter === c}
+                    onClick={() => switchCategory(c)}
+                  />
+                ))}
+              </div>
+            )}
             {!words.length ? (
               <EmptyState onAdd={() => setView("add")} />
             ) : !pool.length ? (
               <div style={{ textAlign: "center", padding: "50px 20px", border: "1px dashed rgba(237,232,220,0.25)", borderRadius: 12 }}>
-                <p className="serif" style={{ fontSize: 20, marginBottom: 8 }}>全部精熟了！</p>
-                <p style={{ fontSize: 13, color: "#8B93A8", marginBottom: 16 }}>目前抽屜裡的單字都已達到精熟等級。</p>
+                <p className="serif" style={{ fontSize: 20, marginBottom: 8 }}>
+                  {categoryFilter === "all" ? "全部精熟了！" : `「${categoryFilter}」都精熟了！`}
+                </p>
+                <p style={{ fontSize: 13, color: "#8B93A8", marginBottom: 16 }}>
+                  {categoryFilter === "all" ? "目前抽屜裡的單字都已達到精熟等級。" : "可以切換其他分類繼續複習，或新增更多單字。"}
+                </p>
                 <button onClick={() => setView("add")} style={btnStyle("#E3A34E", "#1C2541")}>新增更多單字</button>
               </div>
             ) : current ? (
@@ -349,9 +383,17 @@ function VocabApp() {
               <StatChip label="精熟" value={mastered} color="#7FA87A" />
               <StatChip label="待複習" value={pool.length} color="#E3A34E" />
             </div>
+            {categories.length > 0 && (
+              <div style={{ display: "flex", gap: 6, marginBottom: 16, flexWrap: "wrap" }}>
+                <CategoryChip label="全部" active={categoryFilter === "all"} onClick={() => setCategoryFilter("all")} />
+                {categories.map((c) => (
+                  <CategoryChip key={c} label={c} active={categoryFilter === c} onClick={() => setCategoryFilter(c)} />
+                ))}
+              </div>
+            )}
             {!words.length && <EmptyState onAdd={() => setView("add")} />}
             <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-              {words.map((w) => (
+              {words.filter((w) => categoryFilter === "all" || w.category === categoryFilter).map((w) => (
                 <div key={w.id} style={{
                   border: "1px solid rgba(237,232,220,0.15)", borderLeft: `4px solid ${levelOf(w.mastery).color}`,
                   borderRadius: 8, padding: "12px 14px", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10,
@@ -379,7 +421,12 @@ function VocabApp() {
             <Field label="單字 *" value={form.term} onChange={(v) => setForm((f) => ({ ...f, term: v }))} placeholder="例如：resilient" />
             <Field label="中文意思 *" value={form.meaning} onChange={(v) => setForm((f) => ({ ...f, meaning: v }))} placeholder="例如：有韌性的" />
             <Field label="例句" value={form.example} onChange={(v) => setForm((f) => ({ ...f, example: v }))} placeholder="選填" textarea />
-            <Field label="分類" value={form.category} onChange={(v) => setForm((f) => ({ ...f, category: v }))} placeholder="例如：形容詞、多益、旅遊" />
+            <Field label="分類" value={form.category} onChange={(v) => setForm((f) => ({ ...f, category: v }))} placeholder="選擇現有分類，或輸入新分類" listId="category-options" />
+            {categories.length > 0 && (
+              <datalist id="category-options">
+                {categories.map((c) => (<option key={c} value={c} />))}
+              </datalist>
+            )}
             <button type="submit" style={btnStyle("#E3A34E", "#1C2541")}>＋ 加入抽屜</button>
           </form>
         )}
@@ -411,14 +458,25 @@ function StatChip({ label, value, color = "#EDE8DC" }) {
   );
 }
 
-function Field({ label, value, onChange, placeholder, textarea }) {
+function Field({ label, value, onChange, placeholder, textarea, listId }) {
   const Tag = textarea ? "textarea" : "input";
   return (
     <label style={{ display: "block" }}>
       <span style={{ fontSize: 12, color: "#8B93A8", display: "block", marginBottom: 5 }}>{label}</span>
-      <Tag value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder} rows={textarea ? 3 : undefined}
+      <Tag value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder} rows={textarea ? 3 : undefined} list={listId}
         style={{ width: "100%", background: "rgba(245,241,232,0.06)", border: "1px solid rgba(237,232,220,0.2)", borderRadius: 8, padding: "10px 12px", color: "#EDE8DC", fontSize: 14, fontFamily: "inherit", resize: textarea ? "vertical" : undefined }} />
     </label>
+  );
+}
+
+function CategoryChip({ label, active, onClick }) {
+  return (
+    <button onClick={onClick} className="mono" style={{
+      padding: "5px 12px", borderRadius: 20, fontSize: 11, cursor: "pointer",
+      border: "1px solid " + (active ? "#E3A34E" : "rgba(237,232,220,0.18)"),
+      background: active ? "rgba(227,163,78,0.16)" : "transparent",
+      color: active ? "#E3A34E" : "#8B93A8",
+    }}>{label}</button>
   );
 }
 
